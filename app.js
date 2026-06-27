@@ -6,7 +6,7 @@
 'use strict';
 
 /* ── Version ─────────────────────────────────────────────────── */
-const APP_VERSION = '2.0.3';
+const APP_VERSION = '2.0.4';
 
 /* ── Constants ──────────────────────────────────────────────── */
 const STORAGE_KEY   = 'sengeri-progress';
@@ -636,6 +636,7 @@ function renderFlash(app) {
         <div class="flash-en">${word.en}</div>
         <div class="flash-cat">${word.cat || ''}</div>
         ${word.ex ? `<div class="flash-ex">"${word.ex}"<div class="flash-exen">${word.exEn || ''}</div></div>` : ''}
+        ${word.cat === 'Verb' && CONJUGATIONS[word.it] ? `<button class="conj-inline-btn" onclick="event.stopPropagation(); showConjugation('${word.it}')">📋 Conjugate</button>` : ''}
       </div>
     </div>
 
@@ -1076,7 +1077,10 @@ function renderQuiz(app) {
     <div class="quiz-word-card">
       <div class="quiz-it">${word.it}</div>
       ${state.settings.ipa ? `<div class="quiz-ipa">[${word.ipa}]</div>` : ''}
-      <button class="speak-mini" onclick="speak('${word.it.replace(/'/g,"\\'")}')">🔊</button>
+      <div class="quiz-card-actions">
+        <button class="speak-mini" onclick="speak('${word.it.replace(/'/g,\"\\'\")}')">🔊</button>
+        ${word.cat === 'Verb' && CONJUGATIONS[word.it] ? `<button class="conj-inline-btn" onclick="showConjugation('${word.it}')">📋 Conjugate</button>` : ''}
+      </div>
     </div>
 
     <div class="quiz-options">
@@ -1452,6 +1456,7 @@ function showWordDetail(it, packId) {
           <div class="wd-ex-it">${word.ex}</div>
           <div class="wd-ex-en">${word.exEn || ''}</div>
         </div>` : ''}
+        ${word.cat === 'Verb' && CONJUGATIONS[word.it] ? `<button class="secondary-btn" onclick="showConjugation('${word.it}')">📋 Conjugate ${word.it}</button>` : ''}
         <button class="primary-btn" onclick="speak('${word.it.replace(/'/g,"\\'")}')">🔊 Hear it</button>
       </div>
     </div>
