@@ -552,6 +552,35 @@
   /* ── Prevent zoom on input focus (font-size must be >= 16px) ──────── */
   .challenge-input { font-size: 16px; }
   input, select, textarea { font-size: 16px; }
+
+  /* ── Bottom tab bar ─────────────────────────────────────────────── */
+  #tab-bar {
+    display: flex;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    position: sticky; bottom: 0; z-index: 90;
+    padding-bottom: env(safe-area-inset-bottom);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    flex: 1;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 8px 4px;
+    gap: 3px;
+    font-size: 0.65rem;
+    color: var(--text3);
+    min-height: 52px;
+    transition: color var(--transition);
+    border-top: 2px solid transparent;
+  }
+  .tab-btn .tab-icon { font-size: 1.3rem; line-height: 1; }
+  .tab-btn.active { color: var(--accent); border-top-color: var(--accent); }
+  .tab-btn:hover  { color: var(--text); }
+
+  /* Push screen content up so it's not hidden behind tab bar */
+  #app { padding-bottom: 0; }
+  .screen { padding-bottom: 0 !important; }
 </style>
 </head>
 <body>
@@ -731,6 +760,38 @@
       <button class="secondary-btn" onclick="App.showScreen('home-screen')">Home</button>
     </div>
   </section>
+
+  <!-- PROGRESS -->
+  <section id="progress-screen" class="screen" style="padding:20px;gap:16px;">
+    <div class="section-title">Your Progress</div>
+    <div class="summary-stats" style="max-width:100%;grid-template-columns:repeat(3,1fr)">
+      <div class="summary-stat"><div class="num" id="prog-seen">0</div><div class="lbl">Words Seen</div></div>
+      <div class="summary-stat"><div class="num" id="prog-known">0</div><div class="lbl">Known</div></div>
+      <div class="summary-stat"><div class="num" id="prog-streak">0</div><div class="lbl">Day Streak</div></div>
+    </div>
+    <div class="section-title">Pack Progress</div>
+    <div id="progress-pack-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+    <button class="secondary-btn" style="margin-top:8px;color:var(--red);border-color:var(--red)" onclick="App.resetProgress()">Reset All Progress</button>
+  </section>
+
+<!-- Bottom tab bar -->
+<nav id="tab-bar">
+  <button class="tab-btn active" id="tab-home" onclick="App.navTab('home')">
+    <span class="tab-icon">🏠</span>Home
+  </button>
+  <button class="tab-btn" id="tab-flash" onclick="App.navTab('flash')">
+    <span class="tab-icon">🃏</span>Flash
+  </button>
+  <button class="tab-btn" id="tab-quiz" onclick="App.navTab('quiz')">
+    <span class="tab-icon">🎯</span>Quiz
+  </button>
+  <button class="tab-btn" id="tab-spritzi" onclick="App.navTab('spritzi')">
+    <span class="tab-icon">⚡</span>Spritzi
+  </button>
+  <button class="tab-btn" id="tab-progress" onclick="App.navTab('progress')">
+    <span class="tab-icon">📊</span>Progress
+  </button>
+</nav>
 
 </div><!-- #app -->
 

@@ -708,13 +708,73 @@ const App = (() => {
     setTimeout(() => el.classList.remove('show'), dur);
   }
 
+  /* ── Tab navigation ─────────────────────────────────────────────── */
+  function navTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    const tabEl = document.getElementById('tab-' + tab);
+    if (tabEl) tabEl.classList.add('active');
+    if (tab === 'home') {
+      showScreen('home-screen');
+    } else if (tab === 'flash') {
+      session = { packIds: PACKS_META.map(m => m.id), mode: 'flash' };
+      startFlash('flash');
+    } else if (tab === 'quiz') {
+      session = { packIds: PACKS_META.map(m => m.id), mode: 'quiz' };
+      startQuiz();
+    } else if (tab === 'spritzi') {
+      session = { packIds: PACKS_META.map(m => m.id), mode: 'spritzi' };
+      startSpritzi();
+    } else if (tab === 'progress') {
+      showProgressScreen();
+    }
+  }
+
+  function showProgressScreen() {
+    showScreen('progress-screen');
+    const allKeys  = Object.keys(progress);
+    const seenKeys = allKeys.filter(k => progress[k].seen > 0);
+    const known    = allKeys.filter(k => progress[k].bucket >= 3).length;
+    document.getElementById('prog-seen').textContent   = seenKeys.length;
+    document.getElementById('prog-known').textContent  = known;
+    document.getElementById('prog-streak').textContent = stats.streak;
+    const list = document.getElementById('progress-pack-list');
+    list.innerHTML = '';
+    PACKS_META.forEach(m => {
+      const seen = countSeenInPack(m.id);
+      const pct  = Math.round(seen / 100 * 100);
+      const div  = document.createElement('div');
+      div.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;';
+      div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:0.88rem;font-weight:600">${m.emoji} ${m.name}</span>
+          <span style="font-size:0.78rem;color:var(--text3)">${seen}/100</span>
+        </div>
+        <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${pct>=80?'var(--green)':'var(--accent)'};border-radius:3px;transition:width 0.4s"></div>
+        </div>`;
+      list.appendChild(div);
+    });
+  }
+
+  function resetProgress() {
+    if (!confirm('Reset all progress? This cannot be undone.')) return;
+    progress = {};
+    stats = { totalSeen:0, totalCorrect:0, xpToday:0, streak:0, lastDay:'' };
+    Store.set('progress', progress);
+    Store.set('stats', stats);
+    updateStatsBar();
+    renderPackGrid();
+    showProgressScreen();
+    toast('Progress reset.');
+  }
+
   /* ── Public API ─────────────────────────────────────────────────── */
   return {
     init, showScreen, openPackMenu, startMode, startAllPacks, showWeakWords,
     flipCard, rateCard, submitChallenge,
     endSession, replaySession,
     openWordModal, closeModal,
-    speak, toast,
+    speak, toast, navTab, resetProgress,
   };
 })();
 
@@ -744,3 +804,4 @@ if ('serviceWorker' in navigator) {
     }, 3000);
   }
 })();
+
