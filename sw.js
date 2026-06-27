@@ -3,7 +3,7 @@
    Caches all pack files + app shell for full offline use
    ═══════════════════════════════════════════════════════════════════ */
 
-const CACHE_NAME = 'italiano-v1';
+const CACHE_NAME = 'sengeri-v2';
 
 const SHELL_FILES = [
   './app.html',
