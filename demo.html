@@ -455,13 +455,19 @@
     initVoices();
 
     function narrate(text) {
-      if (!soundOn || !window.speechSynthesis) return;
+      if (!window.speechSynthesis) return;
       speechSynthesis.cancel();
+      if (!soundOn) return;
       const utt = new SpeechSynthesisUtterance(text);
       utt.lang = 'en-US';
-      utt.rate = 0.95;
+      utt.rate = 0.92;
       utt.pitch = 1.0;
       if (ttsVoice) utt.voice = ttsVoice;
+      utt.onend = () => {
+        // Only auto-advance if we haven't manually navigated away
+        clearInterval(autoTimer);
+        autoTimer = setTimeout(() => goTo(cur + 1), 1200);
+      };
       speechSynthesis.speak(utt);
     }
 
@@ -520,7 +526,8 @@
 
     function resetAuto() {
       clearInterval(autoTimer);
-      autoTimer = setInterval(() => goTo(cur + 1), 7000);
+      // Long fallback only — normally speech onend drives the advance
+      autoTimer = setTimeout(() => goTo(cur + 1), 18000);
     }
 
     document.getElementById('prevBtn').onclick = () => goTo(cur - 1);
