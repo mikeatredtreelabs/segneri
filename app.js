@@ -124,16 +124,26 @@ async function loadPack(packId) {
   if (state.allPacksCache[packId]) return state.allPacksCache[packId];
   const info = PACK_MAP[packId];
   if (!info) throw new Error(`Unknown pack: ${packId}`);
+  // Don't re-inject if script tag already exists
+  const existing = document.querySelector(`script[data-pack="${packId}"]`);
+  if (existing) {
+    const data = window[info.varName];
+    if (data) { state.allPacksCache[packId] = data; return data; }
+  }
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = info.file;
+    s.src = info.file + '?v=' + APP_VERSION;
+    s.setAttribute('data-pack', packId);
     s.onload = () => {
       const data = window[info.varName];
-      if (!data) reject(new Error(`Pack var missing: ${info.varName}`));
+      if (!data) {
+        reject(new Error(`Pack var missing: ${info.varName}`));
+        return;
+      }
       state.allPacksCache[packId] = data;
       resolve(data);
     };
-    s.onerror = () => reject(new Error(`Failed to load ${info.file}`));
+    s.onerror = (e) => reject(new Error(`Failed to load ${info.file}`));
     document.head.appendChild(s);
   });
 }
@@ -545,8 +555,10 @@ async function openPack(packId) {
     state.packId   = packId;
     state.packData = data;
     state.packWords = data.words;
+    hideLoading();
     showPackModal(data);
   } catch (e) {
+    hideLoading();
     showToast('Failed to load pack 😕');
   }
 }
