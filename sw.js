@@ -1,11 +1,10 @@
 /* ═══════════════════════════════════════════════════════════════════
-   Sengeri — Service Worker v2.0.2
+   Sengeri — Service Worker v2.0.3
    Network-first for shell, cache-first for pack files
    ═══════════════════════════════════════════════════════════════════ */
 
-const CACHE_NAME = 'sengeri-v3';
+const CACHE_NAME = 'sengeri-v4';
 
-// Shell files: always try network first so updates come through
 const SHELL_FILES = [
   './app.html',
   './app.js',
@@ -13,7 +12,6 @@ const SHELL_FILES = [
   './whats-new.html',
 ];
 
-// Pack files: cache-first (they never change once deployed)
 const PACK_FILES = [
   './pack-greet.js',
   './pack-food.js',
@@ -46,27 +44,31 @@ self.addEventListener('install', event => {
   );
 });
 
-/* ── Activate: delete ALL old caches ── */
+/* ── Activate: delete only OLD caches, keep current ── */
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+      ))
       .then(() => self.clients.claim())
   );
 });
 
-/* ── Fetch strategy ── */
+/* ── Fetch: network-first for shell, cache-first for packs ── */
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
-  const isShell = SHELL_FILES.some(f => url.pathname.endsWith(f.replace('./', '/')));
-  const isPack  = PACK_FILES.some(f => url.pathname.endsWith(f.replace('./', '/')));
+  const filename = url.pathname.split('/').pop();
+
+  const isShell = ['app.html', 'app.js', 'manifest.json', 'whats-new.html', ''].includes(filename);
+  const isPack  = filename.startsWith('pack-') && filename.endsWith('.js');
 
   if (isShell) {
-    // Network-first: try fresh copy, fall back to cache if offline
+    // Network-first with no-cache header so browser HTTP cache is bypassed
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-cache' })
         .then(response => {
           if (response && response.status === 200) {
             const clone = response.clone();
@@ -77,7 +79,7 @@ self.addEventListener('fetch', event => {
         .catch(() => caches.match(event.request))
     );
   } else if (isPack) {
-    // Cache-first: packs don't change
+    // Cache-first: pack files never change
     event.respondWith(
       caches.match(event.request).then(cached => {
         if (cached) return cached;
@@ -91,5 +93,5 @@ self.addEventListener('fetch', event => {
       })
     );
   }
-  // Everything else: just fetch normally
+  // Everything else: pass through
 });
