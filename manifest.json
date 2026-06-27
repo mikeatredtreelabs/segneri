@@ -1,6 +1,6 @@
 {
-  "name": "Italiano — 2000 Words",
-  "short_name": "Italiano",
+  "name": "Sengeri — Italian Vocab",
+  "short_name": "Sengeri",
   "description": "Italian vocabulary trainer — 2000 words across 20 packs",
   "start_url": "./app.html",
   "display": "standalone",
