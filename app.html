@@ -390,6 +390,15 @@
       transition: transform 0.15s;
     }
     .flash-card:active { transform: scale(0.98); }
+    .flash-card .flash-back { display: none; }
+    .flash-card.flipped .flash-front { display: none; }
+    .flash-card.flipped .flash-back {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
     .flash-it  { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
     .flash-ipa { font-size: 16px; color: var(--muted); }
     .flash-tap { font-size: 12px; color: var(--muted); margin-top: 8px; }
