@@ -6,7 +6,7 @@
 'use strict';
 
 /* ── Version ─────────────────────────────────────────────────── */
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.2.0';
 
 /* ── Constants ──────────────────────────────────────────────── */
 const STORAGE_KEY   = 'sengeri-progress';
@@ -85,6 +85,12 @@ let state = {
   speakTotal:   0,
   isListening:  false,
   recognition:  null,
+  // daily quiz
+  dailyQueue:   [],
+  dailyIdx:     0,
+  dailyFlipped: false,
+  dailyRight:   0,
+  dailyWrong:   0,
   // review
   reviewMode:   false,
   reviewWordIds:[],
@@ -441,6 +447,7 @@ function render() {
     case 'listen':   renderListen(app);   break;
     case 'cloze':    renderCloze(app);    break;
     case 'speak':    renderSpeak(app);    break;
+    case 'dailyquiz':renderDailyQuiz(app);break;
     default:         renderHome(app);
   }
   renderTabBar();
@@ -457,7 +464,7 @@ function renderTabBar() {
     { id: 'progress', icon: '📈', label: 'Progress' },
   ];
   bar.innerHTML = tabs.map(t => `
-    <button class="tab-btn ${state.tab === t.id || (t.id === 'flash' && ['listen','cloze','speak'].includes(state.tab)) ? 'active' : ''}"
+    <button class="tab-btn ${state.tab === t.id || (t.id === 'flash' && ['listen','cloze','speak'].includes(state.tab)) || (t.id === 'quiz' && state.tab === 'dailyquiz') ? 'active' : ''}"
             onclick="setTab('${t.id}')">
       <span class="tab-icon">${t.icon}</span>
       <span class="tab-label">${t.label}</span>
@@ -516,6 +523,7 @@ async function renderHome(app) {
       ${renderModeCard('listen',  '👂', 'Listening',     'Hear & identify')}
       ${renderModeCard('cloze',   '📝', 'Sentences',     'Fill in the blank')}
       ${renderModeCard('speak',   '🎤', 'Speak',         'Pronunciation practice')}
+      ${renderModeCard('dailyquiz','🎴','Daily Quiz',    'Flip 10, self-grade')}
     </div>
 
     <div class="section-title">Vocabulary Packs</div>
@@ -739,6 +747,148 @@ function exitSession() {
   state.clozeQueue    = [];
   state.speakQueue    = [];
   state.reviewMode    = false;
+  state.dailyQueue    = [];
+  state.dailyIdx      = 0;
+  state.dailyFlipped  = false;
+  state.dailyRight    = 0;
+  state.dailyWrong    = 0;
+  render();
+}
+
+/* ── Daily Quiz ──────────────────────────────────────────────── */
+async function buildDailyQueue() {
+  await loadAllPacks();
+  const all = [];
+  for (const [packId, pack] of Object.entries(state.allPacksCache)) {
+    if (!pack) continue;
+    for (const w of pack.words) all.push({ ...w, _packId: packId });
+  }
+  return shuffle(all).slice(0, 10);
+}
+
+async function renderDailyQuiz(app) {
+  if (!state.dailyQueue.length) {
+    app.innerHTML = `<div class="loading-inline">Preparing your 10 words…</div>`;
+    const queue = await buildDailyQueue();
+    if (state.tab !== 'dailyquiz') return; // user navigated away mid-load
+    state.dailyQueue = queue;
+    state.dailyIdx = 0;
+    state.dailyFlipped = false;
+    state.dailyRight = 0;
+    state.dailyWrong = 0;
+    updateStreak();
+  }
+
+  // Session complete → score screen
+  if (state.dailyIdx >= state.dailyQueue.length) {
+    return renderDailyScore(app);
+  }
+
+  const word = state.dailyQueue[state.dailyIdx];
+  const flipped = state.dailyFlipped;
+  const progress = `${state.dailyIdx + 1} / ${state.dailyQueue.length}`;
+
+  app.innerHTML = `
+    <div class="game-header">
+      <button class="back-btn" onclick="quitDaily()">← Daily Quiz</button>
+      <span class="progress-text">${progress}</span>
+      <span class="progress-text">✅ ${state.dailyRight} · ❌ ${state.dailyWrong}</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" style="width:${(state.dailyIdx / state.dailyQueue.length) * 100}%"></div></div>
+
+    <div class="flash-card ${flipped ? 'flipped' : ''}" onclick="flipDaily()" id="daily-card">
+      <div class="flash-front">
+        <div class="flash-it">${word.it}</div>
+        <div class="flash-tap">tap to reveal</div>
+      </div>
+      <div class="flash-back">
+        <div class="daily-it-small">${word.it} <button class="speak-mini" onclick="event.stopPropagation(); speak('${word.it.replace(/'/g,"\\'")}')">🔊</button></div>
+        <div class="flash-en">${word.en}</div>
+        ${word.ex ? `<div class="flash-ex">"${word.ex}"<div class="flash-exen">${word.exEn || ''}</div></div>` : ''}
+      </div>
+    </div>
+
+    <div class="daily-grade-row">
+      <button class="daily-btn wrong ${flipped ? '' : 'pre-flip'}" onclick="${flipped ? 'gradeDaily(false)' : 'flipDaily()'}" aria-label="Got it wrong">✕</button>
+      <button class="daily-btn right ${flipped ? '' : 'pre-flip'}" onclick="${flipped ? 'gradeDaily(true)' : 'flipDaily()'}" aria-label="Got it right">✓</button>
+    </div>
+  `;
+}
+
+function flipDaily() {
+  if (state.dailyFlipped) return;
+  state.dailyFlipped = true;
+  const word = state.dailyQueue[state.dailyIdx];
+  if (word) speak(word.it); // sound always plays on flip
+  render();
+}
+
+function gradeDaily(correct) {
+  const word = state.dailyQueue[state.dailyIdx];
+  if (!word) return;
+  if (correct) { state.dailyRight++; addXP(2); }
+  else         { state.dailyWrong++; }
+  recordResult(word._packId, word, correct);
+  state.dailyIdx++;
+  state.dailyFlipped = false;
+  render();
+}
+
+function renderDailyScore(app) {
+  const right = state.dailyRight;
+  const wrong = state.dailyWrong;
+  const total = state.dailyQueue.length;
+  const perfect = wrong === 0;
+  const pct = total ? Math.round((right / total) * 100) : 0;
+
+  app.innerHTML = `
+    <div class="score-screen">
+      <div class="score-emoji">${perfect ? '🏆' : pct >= 70 ? '💪' : '📖'}</div>
+      <h2>${perfect ? 'Perfetto!' : 'Daily Quiz Complete'}</h2>
+      <div class="score-big">${right}/${total}</div>
+      <div class="score-sub">✅ ${right} right · ❌ ${wrong} wrong</div>
+      <div class="score-meter"><div class="score-meter-fill" style="width:${pct}%"></div></div>
+      ${perfect
+        ? `<div class="score-detail">You nailed all ${total} words. Ready for a fresh set?</div>
+           <div class="score-actions">
+             <button class="primary-btn" onclick="newDailyRound()">✨ 10 New Words</button>
+             <button class="secondary-btn" onclick="quitDaily()">Done</button>
+           </div>`
+        : `<div class="score-detail">You missed ${wrong} word${wrong !== 1 ? 's' : ''}. Want to run the same 10 again?</div>
+           <div class="score-actions">
+             <button class="primary-btn" onclick="retryDailyRound()">🔁 Same Words Again</button>
+             <button class="secondary-btn" onclick="newDailyRound()">✨ 10 New Words</button>
+             <button class="secondary-btn" onclick="quitDaily()">Done</button>
+           </div>`}
+    </div>
+  `;
+  if (perfect) confetti();
+}
+
+function retryDailyRound() {
+  state.dailyQueue = shuffle(state.dailyQueue);
+  state.dailyIdx = 0;
+  state.dailyFlipped = false;
+  state.dailyRight = 0;
+  state.dailyWrong = 0;
+  render();
+}
+
+function quitDaily() {
+  state.dailyQueue = [];
+  state.dailyIdx = 0;
+  state.dailyFlipped = false;
+  state.dailyRight = 0;
+  state.dailyWrong = 0;
+  setTab('home');
+}
+
+function newDailyRound() {
+  state.dailyQueue = [];
+  state.dailyIdx = 0;
+  state.dailyFlipped = false;
+  state.dailyRight = 0;
+  state.dailyWrong = 0;
   render();
 }
 

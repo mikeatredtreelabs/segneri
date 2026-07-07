@@ -416,6 +416,47 @@
     .rate-btn.easy { background: rgba(46,196,182,0.15); color: var(--green); border: 1px solid rgba(46,196,182,0.3); }
     .rate-btn.pre-flip { opacity: 0.35; }
 
+    /* Daily Quiz */
+    .daily-grade-row {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    .daily-btn {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      font-size: 38px;
+      font-weight: 900;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.1s ease, opacity 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .daily-btn:active { transform: scale(0.92); }
+    .daily-btn.right { background: rgba(46,196,182,0.18); color: var(--green); border: 2px solid var(--green); }
+    .daily-btn.wrong { background: rgba(230,57,70,0.15); color: var(--accent); border: 2px solid var(--accent); }
+    .daily-btn.pre-flip { opacity: 0.3; }
+    .daily-it-small {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: center;
+    }
+    .loading-inline {
+      text-align: center;
+      color: var(--muted);
+      padding: 60px 20px;
+      font-size: 15px;
+    }
+
     /* ── Session footer ── */
     .session-footer { display: flex; gap: 16px; flex-wrap: wrap; }
     .toggle-row { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
