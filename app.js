@@ -6,7 +6,7 @@
 'use strict';
 
 /* ── Version ─────────────────────────────────────────────────── */
-const APP_VERSION = '2.2.3';
+const APP_VERSION = '2.2.4';
 
 /* ── Constants ──────────────────────────────────────────────── */
 const STORAGE_KEY   = 'sengeri-progress';
@@ -517,13 +517,13 @@ async function renderHome(app) {
 
     <div class="section-title">Study Modes</div>
     <div class="mode-grid">
-      ${renderModeCard('flash',   '🃏', 'Flashcards',    'Flip & rate words')}
+      ${renderModeCard('dailyquiz','🎴','Daily Quiz',    'Flip 10, self-grade')}
       ${renderModeCard('quiz',    '🧠', 'Quiz',          '4-choice MCQ')}
       ${renderModeCard('spritzi', '⚡', 'Spritzi',       'Speed game, 3 lives')}
       ${renderModeCard('listen',  '👂', 'Listening',     'Hear & identify')}
       ${renderModeCard('cloze',   '📝', 'Sentences',     'Fill in the blank')}
       ${renderModeCard('speak',   '🎤', 'Speak',         'Pronunciation practice')}
-      ${renderModeCard('dailyquiz','🎴','Daily Quiz',    'Flip 10, self-grade')}
+      ${renderModeCard('flash',   '🃏', 'Flashcards',    'Flip & rate words')}
     </div>
 
     <div class="section-title">Vocabulary Packs</div>
