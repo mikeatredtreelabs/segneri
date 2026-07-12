@@ -6,7 +6,7 @@
 'use strict';
 
 /* ── Version ─────────────────────────────────────────────────── */
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.8.0';
 
 /* ── Constants ──────────────────────────────────────────────── */
 const STORAGE_KEY   = 'sengeri-progress';
@@ -18,6 +18,7 @@ const ERRORS_KEY    = 'sengeri-errors';   // NEW: per-word error counts
 const SEEN_KEY      = 'sengeri-seen';     // NEW: per-word seen dates
 const TUTOR_KEY     = 'sengeri-tutor-key';     // Anthropic API key (device-local only)
 const TUTOR_PREFS_KEY   = 'sengeri-tutor-prefs';   // voice, level, whisper URL, auto-speak
+const TUTOR_PHOTO_KEY   = 'sengeri-tutor-photo';   // custom avatar photo (data URL, never synced)
 const TUTOR_SESSION_KEY = 'sengeri-tutor-session'; // persisted conversation
 
 const PACK_MAP = {
@@ -2120,7 +2121,7 @@ function renderTutor(app) {
     ${state.tutorShowSettings ? renderTutorSettings() : ''}
     <div class="tutor-avatar-row">
       <div class="tutor-avatar" id="tutor-avatar">${tutorAvatarSVG()}</div>
-      <div class="tutor-avatar-name">${getTutorPrefs().avatar === 'sofia' ? 'Sofia' : 'Marco'}</div>
+      <div class="tutor-avatar-name">${getTutorPrefs().avatar === 'photo' ? 'Tutor' : getTutorPrefs().avatar === 'sofia' ? 'Sofia' : 'Marco'}</div>
     </div>
     <div class="tutor-msgs" id="tutor-msgs">${renderTutorBubbles()}</div>
     ${state.tutorEnded ? `
@@ -2144,7 +2145,12 @@ function renderTutor(app) {
 }
 
 function tutorAvatarSVG() {
-  if (getTutorPrefs().avatar === 'sofia') return tutorAvatarSofia();
+  const p = getTutorPrefs();
+  if (p.avatar === 'photo') {
+    const src = localStorage.getItem(TUTOR_PHOTO_KEY);
+    if (src) return `<img class="av-photo" src="${src}" alt="Tutor">`;
+  }
+  if (p.avatar === 'sofia') return tutorAvatarSofia();
   return tutorAvatarMarco();
 }
 
@@ -2297,8 +2303,13 @@ function renderTutorSettings() {
   return `
     <div class="tutor-settings">
       <div class="tutor-set-row"><span>Avatar</span>
-        <div class="tutor-lvl-group">${avBtn('marco','Marco')}${avBtn('sofia','Sofia')}</div>
+        <div class="tutor-lvl-group">${avBtn('marco','Marco')}${avBtn('sofia','Sofia')}${avBtn('photo','📷')}</div>
       </div>
+      ${p.avatar === 'photo' ? `<div class="tutor-set-row"><span>Photo</span>
+        <button class="tutor-end-btn" onclick="pickTutorPhoto()">${localStorage.getItem(TUTOR_PHOTO_KEY) ? 'Change photo…' : 'Choose photo…'}</button>
+        <input type="file" id="tutor-photo-input" accept="image/*" style="display:none" onchange="setTutorPhoto(this)">
+      </div>
+      <div class="tutor-set-row"><span class="tutor-set-hint">Stored only on this device — never uploaded anywhere.</span></div>` : ''}
       <div class="tutor-set-row"><span>Level</span>
         <div class="tutor-lvl-group">${lvlBtn('beginner','A1')}${lvlBtn('intermediate','A2–B1')}${lvlBtn('advanced','B1+')}</div>
       </div>
@@ -2486,6 +2497,36 @@ function setTutorPref(k, v) {
     persistTutorSession();
   }
   render();
+}
+
+function pickTutorPhoto() {
+  document.getElementById('tutor-photo-input')?.click();
+}
+
+function setTutorPhoto(input) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    const im = new Image();
+    im.onload = () => {
+      const S = 512, c = document.createElement('canvas');
+      c.width = c.height = S;
+      const ctx = c.getContext('2d');
+      const s = Math.min(im.width, im.height);
+      ctx.drawImage(im, (im.width - s) / 2, (im.height - s) / 2, s, s, 0, 0, S, S);
+      try {
+        localStorage.setItem(TUTOR_PHOTO_KEY, c.toDataURL('image/jpeg', 0.85));
+      } catch {
+        showToast('Photo too large to store'); return;
+      }
+      setTutorPref('avatar', 'photo');
+      showToast('Photo avatar saved on this device ✓');
+    };
+    im.src = rd.result;
+  };
+  rd.readAsDataURL(f);
+  input.value = '';
 }
 
 function persistTutorSession() {

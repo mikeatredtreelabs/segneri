@@ -1098,6 +1098,19 @@
     }
     .tutor-avatar.listening .av-brow { transform: translateY(-1.2px); }
     .tutor-avatar.listening .av-head { transform: rotate(3deg); transition: transform 0.4s ease; }
+    .av-photo {
+      width: 100%; height: 100%; border-radius: 50%;
+      object-fit: cover; display: block;
+      transform-origin: 50% 92%; transition: transform 0.4s ease;
+    }
+    .tutor-avatar.talking .av-photo { animation: avPhotoTalk 1.2s infinite ease-in-out; }
+    @keyframes avPhotoTalk {
+      0%, 100% { transform: rotate(0deg) translateY(0); }
+      28%      { transform: rotate(-1.6deg) translateY(-0.8px); }
+      55%      { transform: rotate(0.6deg) translateY(0); }
+      80%      { transform: rotate(1.4deg) translateY(-0.6px); }
+    }
+    .tutor-avatar.listening .av-photo { transform: rotate(3deg); }
     .av-mouth { transform-box: fill-box; transform-origin: center; }
     .av-head { transform-box: fill-box; transform-origin: 50% 85%; }
     .tutor-avatar.talking .av-head { animation: avNod 1.8s infinite ease-in-out; }
