@@ -6,7 +6,7 @@
 'use strict';
 
 /* ── Version ─────────────────────────────────────────────────── */
-const APP_VERSION = '2.3.1';
+const APP_VERSION = '2.4.0';
 
 /* ── Constants ──────────────────────────────────────────────── */
 const STORAGE_KEY   = 'sengeri-progress';
@@ -16,6 +16,7 @@ const STREAK_KEY    = 'sengeri-streak';
 const XP_KEY        = 'sengeri-xp';
 const ERRORS_KEY    = 'sengeri-errors';   // NEW: per-word error counts
 const SEEN_KEY      = 'sengeri-seen';     // NEW: per-word seen dates
+const TUTOR_KEY     = 'sengeri-tutor-key'; // Anthropic API key (device-local only)
 
 const PACK_MAP = {
   greet:     { file: 'pack-greet.js',     varName: 'PACK_greet'     },
@@ -96,6 +97,12 @@ let state = {
   reviewWordIds:[],
   // word detail
   detailWord:   null,
+  // tutor (text-only chat, step 1 of voice tutor spec)
+  tutorMessages: [],        // { role, content, hidden? }
+  tutorSystem:   null,      // cached-per-session system prompt
+  tutorBusy:     false,
+  tutorRecap:    null,
+  tutorEnded:    false,
 };
 
 /* ── localStorage helpers ───────────────────────────────────── */
@@ -448,6 +455,7 @@ function render() {
     case 'cloze':    renderCloze(app);    break;
     case 'speak':    renderSpeak(app);    break;
     case 'dailyquiz':renderDailyQuiz(app);break;
+    case 'tutor':    renderTutor(app);    break;
     default:         renderHome(app);
   }
   renderTabBar();
@@ -523,6 +531,7 @@ async function renderHome(app) {
       ${renderModeCard('listen',  '👂', 'Listening',     'Hear & identify')}
       ${renderModeCard('cloze',   '📝', 'Sentences',     'Fill in the blank')}
       ${renderModeCard('speak',   '🎤', 'Speak',         'Pronunciation practice')}
+      ${renderModeCard('tutor',   '💬', 'Tutor',         'Chat with an AI tutor')}
       ${renderModeCard('flash',   '🃏', 'Flashcards',    'Flip & rate words')}
     </div>
 
@@ -2002,6 +2011,237 @@ function resetAllProgress() {
   document.querySelectorAll('.modal-overlay').forEach(m => m.remove());
   showToast('Progress reset ✓');
   render();
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   AI TUTOR — text-only chat (step 1 of voice tutor spec)
+   claude-haiku-4-5 via Anthropic Messages API, prompt caching on.
+   API key lives only in this device's localStorage.
+   ═══════════════════════════════════════════════════════════════ */
+
+const TUTOR_MODEL      = 'claude-haiku-4-5';
+const TUTOR_MAX_TOKENS = 300;
+
+const getTutorKey = () => load(TUTOR_KEY, '');
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* Build once per session and keep stable so prompt caching hits. */
+function buildTutorSystemPrompt() {
+  const weak = getWeakWords(12).map(w => `${w.it} (${w.en})`).join(', ');
+  const recent = Object.entries(state.seen)
+    .sort((a, b) => String(b[1]).localeCompare(String(a[1])))
+    .slice(0, 15)
+    .map(([k]) => k.split(':').slice(1).join(':'))
+    .join(', ');
+
+  return [
+    'You are a friendly, encouraging Italian tutor chatting (text only) with a beginner/early-intermediate adult learner inside their vocabulary app, Segneri.',
+    '',
+    'Rules:',
+    '- Speak primarily in Italian, calibrated to their level. Keep every turn SHORT: 1-3 sentences, then usually a simple question to keep the conversation going.',
+    '- Gently correct mistakes inline: briefly note the error and the correct form (one short parenthetical or sentence), then continue the conversation. Never lecture.',
+    '- Use English sparingly, only when the learner is clearly stuck or asks for an explanation.',
+    '- If they struggle, simplify vocabulary and slow down. If they are comfortable, introduce slightly harder structures.',
+    '- Open the session with a short greeting and one easy question.',
+    '- When asked for a session recap, give 2-3 bullet items in English covering corrections made and new vocabulary introduced, then a one-line encouragement in Italian.',
+    '',
+    weak   ? `Words the learner has struggled with (weave a few in naturally when it fits): ${weak}` : '',
+    recent ? `Words the learner studied recently: ${recent}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+async function callTutorAPI() {
+  const msgs = state.tutorMessages.map(m => ({ role: m.role, content: m.content }));
+  const body = {
+    model: TUTOR_MODEL,
+    max_tokens: TUTOR_MAX_TOKENS,
+    system: [{ type: 'text', text: state.tutorSystem, cache_control: { type: 'ephemeral' } }],
+    messages: msgs.map((m, i) =>
+      i === msgs.length - 1
+        ? { role: m.role, content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }] }
+        : m
+    ),
+  };
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': getTutorKey(),
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data?.error?.message || `HTTP ${r.status}`);
+  return (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+}
+
+function renderTutor(app) {
+  if (!getTutorKey()) return renderTutorKeyScreen(app);
+
+  app.innerHTML = `
+    <div class="game-header">
+      <button class="back-btn" onclick="exitTutor()">← Tutor</button>
+      <div style="display:flex;gap:4px;align-items:center;">
+        <button class="icon-btn" title="API key" onclick="changeTutorKey()">🔑</button>
+        ${state.tutorMessages.some(m => m.role === 'user' && !m.hidden) && !state.tutorEnded
+          ? '<button class="tutor-end-btn" onclick="endTutorSession()">End</button>' : ''}
+      </div>
+    </div>
+    <div class="tutor-msgs" id="tutor-msgs">${renderTutorBubbles()}</div>
+    ${state.tutorEnded ? `
+      <div class="tutor-input-bar">
+        <button class="primary-btn" style="flex:1" onclick="resetTutorSession()">Start New Session</button>
+      </div>
+    ` : `
+      <div class="tutor-input-bar">
+        <textarea id="tutor-input" class="tutor-input" rows="1" placeholder="Scrivi in italiano…"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendTutorMessage();}"></textarea>
+        <button class="tutor-send" id="tutor-send" onclick="sendTutorMessage()" ${state.tutorBusy ? 'disabled' : ''}>➤</button>
+      </div>
+    `}
+  `;
+
+  scrollTutorToBottom();
+
+  // Kick off the tutor's opening greeting on first visit of a session
+  if (!state.tutorMessages.length && !state.tutorBusy) startTutorSession();
+}
+
+function renderTutorKeyScreen(app) {
+  app.innerHTML = `
+    <div class="page-header">
+      <button class="logo logo-btn" onclick="setTab('home')">‹ <span>Tutor</span></button>
+    </div>
+    <div class="tutor-key-card">
+      <div class="tutor-key-icon">💬</div>
+      <h2>AI Italian Tutor</h2>
+      <p>Chat in Italian with an AI tutor that corrects your mistakes and adapts to your level.</p>
+      <p>Paste your Anthropic API key to get started. It is stored <b>only on this device</b> (localStorage) and sent only to api.anthropic.com.</p>
+      <input type="password" id="tutor-key-input" class="tutor-key-input" placeholder="sk-ant-…" autocomplete="off">
+      <button class="primary-btn" style="width:100%" onclick="saveTutorKey()">Save Key</button>
+      <p class="tutor-key-hint">Get a key at console.anthropic.com → API Keys.<br>Tip: set a monthly spend limit there too.</p>
+    </div>
+  `;
+}
+
+function saveTutorKey() {
+  const v = document.getElementById('tutor-key-input').value.trim();
+  if (!v) return;
+  save(TUTOR_KEY, v);
+  showToast('Key saved on this device ✓');
+  render();
+}
+
+function changeTutorKey() {
+  localStorage.removeItem(TUTOR_KEY);
+  resetTutorSession(false);
+  render();
+}
+
+function renderTutorBubbles() {
+  const visible = state.tutorMessages.filter(m => !m.hidden);
+  let html = visible.map(m => `
+    <div class="tutor-bubble ${m.role === 'user' ? 'tutor-user' : 'tutor-ai'}">${
+      m.role === 'assistant'
+        ? `${escapeHtml(m.content)}<button class="speak-mini tutor-speak" onclick='speak(${JSON.stringify(m.content).replace(/'/g, "&#39;")})'>🔊</button>`
+        : escapeHtml(m.content)
+    }</div>
+  `).join('');
+  if (state.tutorBusy) {
+    html += '<div class="tutor-bubble tutor-ai tutor-typing"><span></span><span></span><span></span></div>';
+  }
+  if (state.tutorRecap) {
+    html += `<div class="tutor-recap"><div class="tutor-recap-title">📋 Session Recap</div>${escapeHtml(state.tutorRecap).replace(/\n/g, '<br>')}</div>`;
+  }
+  return html;
+}
+
+function refreshTutorMsgs() {
+  const box = document.getElementById('tutor-msgs');
+  if (box) { box.innerHTML = renderTutorBubbles(); scrollTutorToBottom(); }
+  const send = document.getElementById('tutor-send');
+  if (send) send.disabled = state.tutorBusy;
+}
+
+function scrollTutorToBottom() {
+  const box = document.getElementById('tutor-msgs');
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+async function startTutorSession() {
+  state.tutorSystem = buildTutorSystemPrompt();
+  state.tutorMessages.push({
+    role: 'user', hidden: true,
+    content: '(The learner just opened the chat. Greet them and start the session.)',
+  });
+  await runTutorTurn();
+}
+
+async function sendTutorMessage() {
+  if (state.tutorBusy || state.tutorEnded) return;
+  const input = document.getElementById('tutor-input');
+  const text = (input?.value || '').trim();
+  if (!text) return;
+  input.value = '';
+  state.tutorMessages.push({ role: 'user', content: text });
+  await runTutorTurn();
+}
+
+async function runTutorTurn() {
+  state.tutorBusy = true;
+  refreshTutorMsgs();
+  try {
+    const reply = await callTutorAPI();
+    state.tutorMessages.push({ role: 'assistant', content: reply });
+  } catch (e) {
+    state.tutorMessages.pop(); // drop the failed user turn so retry is clean
+    showToast('Tutor error: ' + e.message);
+  }
+  state.tutorBusy = false;
+  refreshTutorMsgs();
+  document.getElementById('tutor-input')?.focus();
+}
+
+async function endTutorSession() {
+  if (state.tutorBusy || state.tutorEnded) return;
+  state.tutorBusy = true;
+  refreshTutorMsgs();
+  try {
+    state.tutorMessages.push({
+      role: 'user', hidden: true,
+      content: '(Session over. Give the session recap now, as specified.)',
+    });
+    state.tutorRecap = await callTutorAPI();
+    state.tutorEnded = true;
+    addXP(5);
+    showToast('+5 XP — sessione finita! 🎉');
+  } catch (e) {
+    state.tutorMessages.pop();
+    showToast('Tutor error: ' + e.message);
+  }
+  state.tutorBusy = false;
+  render();
+}
+
+function resetTutorSession(rerender = true) {
+  state.tutorMessages = [];
+  state.tutorSystem = null;
+  state.tutorRecap = null;
+  state.tutorEnded = false;
+  state.tutorBusy = false;
+  if (rerender) render();
+}
+
+function exitTutor() {
+  setTab('home');
 }
 
 /* ── Navigation ──────────────────────────────────────────────── */
