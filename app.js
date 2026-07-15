@@ -6,7 +6,7 @@
 'use strict';
 
 /* ── Version ─────────────────────────────────────────────────── */
-const APP_VERSION = '2.10.0';
+const APP_VERSION = '2.11.0';
 
 /* ── Constants ──────────────────────────────────────────────── */
 const STORAGE_KEY   = 'sengeri-progress';
@@ -98,6 +98,12 @@ let state = {
   dailyRight:   0,
   dailyWrong:   0,
   dailyNewKnown: 0,
+  // known-words review
+  knownQueue:   [],
+  knownIdx:     0,
+  knownFlipped: false,
+  knownKept:    0,
+  knownRemoved: 0,
   // review
   reviewMode:   false,
   reviewWordIds:[],
@@ -468,6 +474,7 @@ function render() {
     case 'cloze':    renderCloze(app);    break;
     case 'speak':    renderSpeak(app);    break;
     case 'dailyquiz':renderDailyQuiz(app);break;
+    case 'knownreview':renderKnownReview(app);break;
     case 'tutor':    renderTutor(app);    break;
     default:         renderHome(app);
   }
@@ -485,7 +492,7 @@ function renderTabBar() {
     { id: 'progress', icon: '📈', label: 'Progress' },
   ];
   bar.innerHTML = tabs.map(t => `
-    <button class="tab-btn ${state.tab === t.id || (t.id === 'flash' && ['listen','cloze','speak'].includes(state.tab)) || (t.id === 'quiz' && state.tab === 'dailyquiz') ? 'active' : ''}"
+    <button class="tab-btn ${state.tab === t.id || (t.id === 'flash' && ['listen','cloze','speak'].includes(state.tab)) || (t.id === 'quiz' && state.tab === 'dailyquiz') || (t.id === 'home' && state.tab === 'knownreview') ? 'active' : ''}"
             onclick="setTab('${t.id}')">
       <span class="tab-icon">${t.icon}</span>
       <span class="tab-label">${t.label}</span>
@@ -511,7 +518,7 @@ async function renderHome(app) {
       <div class="stat-pill"><span class="stat-num">${state.streak.count}</span><span class="stat-lbl">🔥 streak</span></div>
       <div class="stat-pill"><span class="stat-num">${state.xp}</span><span class="stat-lbl">⭐ XP</span></div>
       <div class="stat-pill"><span class="stat-num">${Object.keys(state.progress).length}</span><span class="stat-lbl">📚 studied</span></div>
-      <button class="stat-pill stat-pill-btn" onclick="showKnownWords()"><span class="stat-num">${Object.keys(state.known).length}</span><span class="stat-lbl">✅ known</span></button>
+      <button class="stat-pill stat-pill-btn" onclick="startKnownReview()"><span class="stat-num">${Object.keys(state.known).length}</span><span class="stat-lbl">✅ known</span></button>
     </div>
 
     ${dueCount > 0 ? `
@@ -1976,40 +1983,129 @@ function showAboutSheet() {
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
 }
 
-/* ── Words I Know sheet ─────────────────────────────────────── */
-function showKnownWords() {
-  const entries = Object.values(state.known)
-    .sort((a, b) => a.it.localeCompare(b.it, 'it'));
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay';
-  modal.innerHTML = `
-    <div class="modal about-modal">
-      <div class="modal-header">
-        <span class="modal-emoji">✅</span>
-        <div>
-          <h2>Words I Know</h2>
-          <div class="modal-subtitle">${entries.length} word${entries.length !== 1 ? 's' : ''} earned from perfect Daily Quiz rounds</div>
-        </div>
-        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+/* ── Words I Know review ────────────────────────────────────── */
+/* Tap the ✅ known pill → flip through every known word, Daily-Quiz
+   style. ✓ keeps the word, ✕ removes it from the known list. */
+function startKnownReview() {
+  if (Object.keys(state.known).length === 0) {
+    showToast('No known words yet — ace a Daily Quiz to earn some! 🎴');
+    return;
+  }
+  state.knownQueue   = [];
+  state.knownIdx     = 0;
+  state.knownFlipped = false;
+  state.knownKept    = 0;
+  state.knownRemoved = 0;
+  setTab('knownreview');
+}
+
+async function buildKnownQueue() {
+  await loadAllPacks();
+  const items = [];
+  for (const [key, entry] of Object.entries(state.known)) {
+    const packId = key.slice(0, key.indexOf(':'));
+    const full = state.allPacksCache[packId]?.words?.find(w => w.it === entry.it);
+    items.push({ _key: key, it: entry.it, en: entry.en, ex: full?.ex, exEn: full?.exEn, ipa: full?.ipa });
+  }
+  return shuffle(items);
+}
+
+async function renderKnownReview(app) {
+  if (!state.knownQueue.length && state.knownIdx === 0 && state.knownKept === 0 && state.knownRemoved === 0) {
+    app.innerHTML = `<div class="loading-inline">Loading your known words…</div>`;
+    const queue = await buildKnownQueue();
+    if (state.tab !== 'knownreview') return; // user navigated away mid-load
+    state.knownQueue = queue;
+  }
+
+  // Session complete → score screen
+  if (state.knownIdx >= state.knownQueue.length) {
+    return renderKnownScore(app);
+  }
+
+  const word = state.knownQueue[state.knownIdx];
+  const flipped = state.knownFlipped;
+
+  app.innerHTML = `
+    <div class="game-header">
+      <button class="back-btn" onclick="quitKnownReview()">← Words I Know</button>
+      <span class="progress-text">${state.knownIdx + 1} / ${state.knownQueue.length}</span>
+      <span class="progress-text">✅ ${state.knownKept} · 🗑️ ${state.knownRemoved}</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" style="width:${(state.knownIdx / state.knownQueue.length) * 100}%"></div></div>
+
+    <div class="flash-card ${flipped ? 'flipped' : ''}" onclick="flipKnown()" id="known-card">
+      <div class="flash-front">
+        <div class="flash-it">${word.it}</div>
+        ${state.settings.ipa && word.ipa ? `<div class="wotd-ipa">[${word.ipa}]</div>` : ''}
       </div>
-      ${entries.length === 0
-        ? `<div class="known-empty">
-             <div class="known-empty-emoji">🎴</div>
-             <p>No words yet! Get all 11 cards right in a <b>Daily Quiz</b> and those 10 words are added here.</p>
-           </div>`
-        : `<div class="known-list">
-             ${entries.map(w => `
-               <div class="known-row">
-                 <button class="speak-mini" onclick="speak('${w.it.replace(/'/g, "\\'")}')">🔊</button>
-                 <span class="known-it">${w.it}</span>
-                 <span class="known-en">${w.en}</span>
-               </div>
-             `).join('')}
-           </div>`}
+      <div class="flash-back">
+        <div class="daily-it-small">${word.it} <button class="speak-mini" onclick="event.stopPropagation(); speak('${word.it.replace(/'/g, "\\'")}')">🔊</button></div>
+        <div class="flash-en">${word.en}</div>
+        ${word.ex ? `<div class="flash-ex">"${word.ex}"<div class="flash-exen">${word.exEn || ''}</div></div>` : ''}
+      </div>
+    </div>
+
+    <div class="known-grade-hint">${flipped ? '✓ still know it · ✕ remove from list' : 'Tap the card to check yourself'}</div>
+    <div class="daily-grade-row">
+      <button class="daily-btn wrong ${flipped ? '' : 'pre-flip'}" onclick="${flipped ? 'gradeKnown(false)' : 'flipKnown()'}" aria-label="Remove from known list">✕</button>
+      <button class="daily-btn right ${flipped ? '' : 'pre-flip'}" onclick="${flipped ? 'gradeKnown(true)' : 'flipKnown()'}" aria-label="Still know it">✓</button>
     </div>
   `;
-  document.body.appendChild(modal);
-  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+function flipKnown() {
+  if (state.knownFlipped) return;
+  state.knownFlipped = true;
+  const word = state.knownQueue[state.knownIdx];
+  if (word) speak(word.it);
+  render();
+}
+
+function gradeKnown(keep) {
+  const word = state.knownQueue[state.knownIdx];
+  if (!word) return;
+  if (keep) {
+    state.knownKept++;
+  } else {
+    delete state.known[word._key];
+    savePersisted();
+    state.knownRemoved++;
+  }
+  state.knownIdx++;
+  state.knownFlipped = false;
+  render();
+}
+
+function renderKnownScore(app) {
+  const kept    = state.knownKept;
+  const removed = state.knownRemoved;
+  const remaining = Object.keys(state.known).length;
+
+  app.innerHTML = `
+    <div class="score-screen">
+      <div class="score-emoji">${removed === 0 ? '🏆' : '🧹'}</div>
+      <h2>${removed === 0 ? 'Ancora perfetto!' : 'List Cleaned Up'}</h2>
+      <div class="score-big">${remaining}</div>
+      <div class="score-sub">✅ ${kept} kept · 🗑️ ${removed} removed</div>
+      <div class="score-detail">${removed === 0
+        ? 'You still know every single word on your list. Bravissimo!'
+        : `${removed} word${removed !== 1 ? 's' : ''} went back to the study pile — ace ${removed !== 1 ? 'them' : 'it'} in a Daily Quiz to earn ${removed !== 1 ? 'them' : 'it'} back.`}</div>
+      <div class="score-actions">
+        <button class="primary-btn" onclick="quitKnownReview()">Done</button>
+      </div>
+    </div>
+  `;
+  if (removed === 0) confetti();
+}
+
+function quitKnownReview() {
+  state.knownQueue   = [];
+  state.knownIdx     = 0;
+  state.knownFlipped = false;
+  state.knownKept    = 0;
+  state.knownRemoved = 0;
+  setTab('home');
 }
 
 function toggleThemeFromSheet(row) {
